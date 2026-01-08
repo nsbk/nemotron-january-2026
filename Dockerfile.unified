@@ -1,19 +1,25 @@
 # Dockerfile.unified - Unified ASR + TTS + LLM container
 #
-# Supported Platforms:
-#   - NVIDIA DGX Spark (ARM64 + Blackwell GB10, sm_121) - CUDA 13.1
-#   - x86_64 + Blackwell GPUs (RTX 5090, sm_120) - CUDA 13.0
+# Supported Platforms (use --build-arg GPU_ARCH=<arch>):
+#   GPU_ARCH=blackwell (default):
+#     - NVIDIA DGX Spark (ARM64 + Blackwell GB10, sm_121) - CUDA 13.1
+#     - x86_64 + Blackwell GPUs (RTX 5090, sm_120) - CUDA 13.0
+#   GPU_ARCH=ampere:
+#     - NVIDIA Ampere GPUs (A100 sm_80, A10/A30/A40/RTX 30xx sm_86) - CUDA 12.4
 #
 # Purpose: Single container with all services sharing one CUDA context
-# Base: Auto-selected based on target architecture (arm64 → 13.1, amd64 → 13.0)
-# PyTorch: Built from source with auto-detected TORCH_CUDA_ARCH_LIST
+# Base: Auto-selected based on GPU_ARCH and target architecture
+# PyTorch: Built from source with GPU_ARCH-specific TORCH_CUDA_ARCH_LIST
 # Services:
 #   - ASR: Parakeet streaming ASR (NeMo) - port 8080
 #   - TTS: Magpie TTS multilingual (NeMo) - port 8001
 #   - LLM: llama.cpp (GGUF) or vLLM (BF16) - port 8000
 #
-# Build (takes 2-3 hours):
-#   docker build -f Dockerfile.unified -t nemotron-unified:cuda13 .
+# Build for Blackwell (default, takes 2-3 hours):
+#   docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
+#
+# Build for Ampere:
+#   docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 #
 # Run (llama.cpp mode):
 #   docker run -d --name nemotron --gpus all --ipc=host \
@@ -38,18 +44,34 @@
 # =============================================================================
 # Base Image Selection (auto-detected by Docker BuildKit)
 # =============================================================================
+# GPU_ARCH selects the GPU generation: blackwell (default) or ampere
 # TARGETARCH is automatically set by Docker BuildKit to arm64 or amd64.
-# We use different CUDA versions because:
-#   - DGX Spark (arm64): Driver supports CUDA 13.1
-#   - RTX 5090 (amd64): Driver supports CUDA 13.0
+#
+# Blackwell (CUDA 13.x): Requires driver >= 545.x
+#   - DGX Spark (arm64): CUDA 13.1, sm_121
+#   - RTX 5090 (amd64): CUDA 13.0, sm_120
+# Ampere (CUDA 12.4): Requires driver >= 550.x (widely available)
+#   - A100: sm_80, A10/A30/A40/RTX 30xx: sm_86
+ARG GPU_ARCH=blackwell
 ARG TARGETARCH
-FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS base-arm64
-FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS base-amd64
-FROM base-${TARGETARCH}
+
+# Blackwell base images (CUDA 13.x)
+FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS base-blackwell-arm64
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS base-blackwell-amd64
+
+# Ampere base images (CUDA 12.4 - good driver compatibility)
+FROM nvidia/cuda:12.4.1-devel-ubuntu24.04 AS base-ampere-arm64
+FROM nvidia/cuda:12.4.1-devel-ubuntu24.04 AS base-ampere-amd64
+
+# Select base image based on GPU_ARCH and TARGETARCH
+FROM base-${GPU_ARCH}-${TARGETARCH}
+
+# Re-declare ARGs after FROM to make them available in subsequent RUN commands
+ARG GPU_ARCH=blackwell
 
 LABEL maintainer="nemotron-speech"
-LABEL description="Unified ASR + TTS + LLM container (ARM64 sm_121 CUDA 13.1 / x86_64 sm_120 CUDA 13.0)"
-LABEL version="1.2"
+LABEL description="Unified ASR + TTS + LLM container (blackwell: sm_120/121 CUDA 13.x, ampere: sm_80/86 CUDA 12.4)"
+LABEL version="1.3"
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -150,10 +172,10 @@ RUN uv pip install --no-cache \
     pytest
 
 # =============================================================================
-# Phase 4: Build PyTorch from Source (for CUDA 13.1 support)
+# Phase 4: Build PyTorch from Source
 # =============================================================================
 # PyTorch - main branch, 2025-12-26
-# Includes CUDA 13.1 support required for Blackwell GPUs
+# Supports both Blackwell (CUDA 13.x) and Ampere (CUDA 12.x)
 ARG PYTORCH_COMMIT=32cb1dac896fe212d77073a4a53fee840c13442f
 
 WORKDIR /build
@@ -167,8 +189,9 @@ WORKDIR /build/pytorch
 # Update submodules to match the pinned commit
 RUN git submodule sync && git submodule update --init --recursive
 
-# Set build environment - architecture auto-detected
-# ARM64 (DGX Spark GB10) = sm_121, x86_64 (RTX 5090) = sm_120
+# Set build environment
+# Blackwell: ARM64 (DGX Spark GB10) = sm_121, x86_64 (RTX 5090) = sm_120
+# Ampere: A100 = sm_80, A10/A30/A40/RTX 30xx = sm_86
 ENV USE_CUDA=1
 ENV USE_CUDNN=1
 ENV USE_MKLDNN=1
@@ -184,26 +207,37 @@ ENV CMAKE_BUILD_TYPE=Release
 ENV CUDNN_INCLUDE_DIR=/usr/include
 ENV USE_PRIORITIZED_TEXT_FOR_LD=1
 
-# Create symlinks for CUB/Thrust from CCCL (CUDA 13.1 layout)
-RUN ln -sf /usr/local/cuda/include/cccl/cub /usr/local/cuda/include/cub && \
-    ln -sf /usr/local/cuda/include/cccl/thrust /usr/local/cuda/include/thrust && \
-    echo "=== Verifying CUB access ===" && \
-    ls /usr/local/cuda/include/cub/cub.cuh && \
-    ls /usr/local/cuda/include/cccl/cub/cub.cuh
+# Create symlinks for CUB/Thrust from CCCL (only needed for CUDA 13.x/Blackwell)
+# CUDA 12.x has CUB/Thrust in standard locations
+RUN if [ "$GPU_ARCH" = "blackwell" ]; then \
+        ln -sf /usr/local/cuda/include/cccl/cub /usr/local/cuda/include/cub && \
+        ln -sf /usr/local/cuda/include/cccl/thrust /usr/local/cuda/include/thrust && \
+        echo "=== Verifying CUB access (CUDA 13.x layout) ===" && \
+        ls /usr/local/cuda/include/cub/cub.cuh && \
+        ls /usr/local/cuda/include/cccl/cub/cub.cuh; \
+    else \
+        echo "=== Using standard CUB/Thrust layout (CUDA 12.x) ==="; \
+    fi
 
-# Build and install PyTorch with auto-detected architecture
+# Build and install PyTorch with GPU_ARCH-specific architecture
+# CUB_INCLUDE_DIR only needed for CUDA 13.x (Blackwell)
 ENV CUB_INCLUDE_DIR=/usr/local/cuda/include/cccl
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
+    if [ "$GPU_ARCH" = "ampere" ]; then \
+        export TORCH_CUDA_ARCH_LIST="8.0;8.6"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
         export TORCH_CUDA_ARCH_LIST="12.1"; \
+    else \
+        export TORCH_CUDA_ARCH_LIST="12.0"; \
+    fi && \
+    if [ "$ARCH" = "aarch64" ]; then \
         export NCCL_LIB_DIR="/usr/lib/aarch64-linux-gnu"; \
         export CUDNN_LIB_DIR="/usr/lib/aarch64-linux-gnu"; \
     else \
-        export TORCH_CUDA_ARCH_LIST="12.0"; \
         export NCCL_LIB_DIR="/usr/lib/x86_64-linux-gnu"; \
         export CUDNN_LIB_DIR="/usr/lib/x86_64-linux-gnu"; \
     fi && \
-    echo "=== Building PyTorch for $ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
+    echo "=== Building PyTorch for GPU_ARCH=$GPU_ARCH, CPU_ARCH=$ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
     python3 setup.py bdist_wheel && \
     uv pip install --no-cache dist/*.whl && \
     mkdir -p /tmp/pytorch_wheel && \
@@ -226,14 +260,16 @@ WORKDIR /build/audio
 ENV BUILD_SOX=0
 ENV USE_CUDA=1
 
-# Build torchaudio with auto-detected CUDA architecture
+# Build torchaudio with GPU_ARCH-specific architecture
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
+    if [ "$GPU_ARCH" = "ampere" ]; then \
+        export TORCH_CUDA_ARCH_LIST="8.0;8.6"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
         export TORCH_CUDA_ARCH_LIST="12.1"; \
     else \
         export TORCH_CUDA_ARCH_LIST="12.0"; \
     fi && \
-    echo "=== Building torchaudio for $ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
+    echo "=== Building torchaudio for GPU_ARCH=$GPU_ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
     python3 setup.py bdist_wheel && \
     uv pip install --no-cache dist/*.whl && \
     mkdir -p /tmp/torchaudio_wheel && \
@@ -360,14 +396,16 @@ RUN uv pip install --no-cache \
     wheel \
     jinja2
 
-# Build and install vLLM with auto-detected architecture
+# Build and install vLLM with GPU_ARCH-specific architecture
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
+    if [ "$GPU_ARCH" = "ampere" ]; then \
+        export TORCH_CUDA_ARCH_LIST="8.0;8.6"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
         export TORCH_CUDA_ARCH_LIST="12.1"; \
     else \
         export TORCH_CUDA_ARCH_LIST="12.0"; \
     fi && \
-    echo "=== Building vLLM for $ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
+    echo "=== Building vLLM for GPU_ARCH=$GPU_ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
     uv pip install --no-cache -e . --no-build-isolation
 
 # Reinstall our custom PyTorch (vLLM may have replaced it)
@@ -383,22 +421,27 @@ RUN uv pip uninstall torchvision torchaudio nvidia-nccl-cu12 nvidia-cudnn-cu12 |
 # Uses same TORCHAUDIO_COMMIT as Phase 5
 WORKDIR /build
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
+    if [ "$GPU_ARCH" = "ampere" ]; then \
+        export TORCH_CUDA_ARCH_LIST="8.0;8.6"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
         export TORCH_CUDA_ARCH_LIST="12.1"; \
     else \
         export TORCH_CUDA_ARCH_LIST="12.0"; \
     fi && \
-    echo "=== Rebuilding torchaudio for $ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
+    echo "=== Rebuilding torchaudio for GPU_ARCH=$GPU_ARCH with CUDA arch $TORCH_CUDA_ARCH_LIST ===" && \
     git clone --recursive https://github.com/pytorch/audio.git torchaudio-rebuild && \
     cd torchaudio-rebuild && git checkout ${TORCHAUDIO_COMMIT} && \
     BUILD_SOX=0 USE_CUDA=1 python3 setup.py bdist_wheel && \
     uv pip install --no-cache dist/*.whl && \
     cd .. && rm -rf torchaudio-rebuild
 
-# Install triton and fix ptxas for sm_120a/sm_121a support
+# Install triton and conditionally fix ptxas for Blackwell sm_120a/sm_121a support
+# Ampere doesn't need this workaround
 RUN uv pip install --no-cache triton && \
-    rm -f /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas && \
-    ln -s /usr/local/cuda/bin/ptxas /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas
+    if [ "$GPU_ARCH" = "blackwell" ]; then \
+        rm -f /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas && \
+        ln -s /usr/local/cuda/bin/ptxas /usr/local/lib/python3.12/dist-packages/triton/backends/nvidia/bin/ptxas; \
+    fi
 
 # =============================================================================
 # Phase 8: Build llama.cpp from Source (for GGUF quantized mode)
@@ -418,12 +461,14 @@ RUN uv pip install --no-cache triton && \
 ARG LLAMACPP_COMMIT=c18428423018ed214c004e6ecaedb0cbdda06805
 COPY patches/llama-cpp-hybrid-cache-fix.patch /tmp/llama-cpp-hybrid-cache-fix.patch
 RUN ARCH=$(uname -m) && \
-    if [ "$ARCH" = "aarch64" ]; then \
+    if [ "$GPU_ARCH" = "ampere" ]; then \
+        CUDA_ARCH="80;86"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
         CUDA_ARCH="121a"; \
     else \
         CUDA_ARCH="120a"; \
     fi && \
-    echo "=== Building llama.cpp for $ARCH with CUDA arch $CUDA_ARCH ===" && \
+    echo "=== Building llama.cpp for GPU_ARCH=$GPU_ARCH with CUDA arch $CUDA_ARCH ===" && \
     git clone https://github.com/ggerganov/llama.cpp.git /opt/llama.cpp && \
     cd /opt/llama.cpp && git checkout ${LLAMACPP_COMMIT} && \
     echo "=== Applying hybrid cache fix patch ===" && \

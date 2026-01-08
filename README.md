@@ -7,21 +7,25 @@ This repo is sample code for building voice agents with three NVIDIA open source
   - Nemotron 3 Nano LLM
   - Magpie TTS (Preview)
 
-Run locally on an NVIDIA DGX Spark or RTX 5090. Or deploy to the cloud with Modal and Pipecat Cloud.
+Run locally on an NVIDIA DGX Spark, RTX 5090 (Blackwell), or Ampere GPUs (A100, A10, RTX 30xx). Or deploy to the cloud with Modal and Pipecat Cloud.
 
 Accompanying blog posts:
 - [Nemotron Speech ASR Open Source Model Launch Post](https://huggingface.co/blog/nvidia/nemotron-speech-asr-scaling-voice-agents)
 - [More About Voice Agent Architectures and This Agent's Design](https://www.daily.co/blog/building-voice-agents-with-nvidia-open-models/)
 
-## Quick start - Run everything locally (DGX Spark or RTX 5090)
+## Quick start - Run everything locally (DGX Spark, RTX 5090, or Ampere GPUs)
 
 ### 1. Build the Unified Container
 
 ```bash
-docker build -f Dockerfile.unified -t nemotron-unified:cuda13 .
+# For Blackwell GPUs (DGX Spark, RTX 5090) - default
+docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
+
+# For Ampere GPUs (A100, A10, A30, A40, RTX 30xx)
+docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 ```
 
-Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source for CUDA 13.1 / Blackwell).
+Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source).
 
 ### 2. Start the Container
 
@@ -280,16 +284,24 @@ Use `./scripts/nemotron.sh` to manage the container:
 ## Building the Container
 
 ```bash
-# Build the unified container (2-3 hours)
-docker build -f Dockerfile.unified -t nemotron-unified:cuda13 .
+# Build for Blackwell GPUs (default) - CUDA 13.x, sm_120/121
+docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
+
+# Build for Ampere GPUs - CUDA 12.4, sm_80/86
+docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 ```
 
-The build compiles from source for CUDA 13.1 / Blackwell (sm_121):
+The build compiles from source (2-3 hours):
 - PyTorch (with NVRTC support)
 - torchaudio
 - NeMo ASR/TTS
 - vLLM
 - llama.cpp
+
+| GPU_ARCH | GPUs | CUDA | SM Codes |
+|----------|------|------|----------|
+| `blackwell` (default) | DGX Spark, RTX 5090 | 13.0/13.1 | sm_120, sm_121 |
+| `ampere` | A100, A10, A30, A40, RTX 30xx | 12.4 | sm_80, sm_86 |
 
 ## Model Requirements
 

@@ -1,6 +1,25 @@
 # Unified Container Plan
 
-This document describes the plan to combine the three services (ASR, TTS, LLM) currently running in two separate containers into a single unified container for NVIDIA DGX Spark (Blackwell GB10, sm_121).
+This document describes the plan to combine the three services (ASR, TTS, LLM) currently running in two separate containers into a single unified container supporting multiple NVIDIA GPU architectures.
+
+## Supported GPU Architectures
+
+| GPU_ARCH | GPUs | SM Codes | CUDA | Build Command |
+|----------|------|----------|------|---------------|
+| `blackwell` (default) | DGX Spark GB10, RTX 5090 | sm_120, sm_121 | 13.0/13.1 | `docker build -f Dockerfile.unified -t nemotron-unified:blackwell .` |
+| `ampere` | A100, A10, A30, A40, RTX 30xx | sm_80, sm_86 | 12.4 | `docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .` |
+
+### Architecture-Specific Notes
+
+**Blackwell (default):**
+- Requires CUDA 13.x with driver >= 545.x
+- Uses `--enforce-eager` in vLLM (CUDA graphs not fully supported)
+- Triton ptxas symlink required for sm_120a/sm_121a
+
+**Ampere:**
+- Uses CUDA 12.4 with driver >= 550.x (widely available)
+- Full CUDA graph support in vLLM (better performance)
+- Standard Triton configuration
 
 ## Implementation Progress
 
@@ -65,14 +84,15 @@ Or ensure the token is available in the environment when running the container.
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  nemotron-unified container (Dockerfile.unified)                │
-│  Base: nvidia/cuda:13.1.0-devel-ubuntu24.04                     │
+│  Base: nvidia/cuda:13.x (blackwell) or 12.4 (ampere)            │
+│  Build-arg: GPU_ARCH=blackwell|ampere                           │
 │  ├─ System dependencies (union of all requirements)             │
 │  ├─ cuDNN + NCCL (from NGC PyTorch container)                   │
-│  ├─ PyTorch (from source, sm_121) - SINGLE BUILD                │
+│  ├─ PyTorch (from source, GPU_ARCH-specific) - SINGLE BUILD     │
 │  ├─ torchaudio (from source)                                    │
 │  ├─ NeMo (main branch, ASR + TTS)                               │
 │  ├─ vLLM (from source) - for BF16 full-weights mode             │
-│  ├─ llama.cpp (from source, sm_121a) - for GGUF quantized mode  │
+│  ├─ llama.cpp (from source, GPU_ARCH-specific)                  │
 │  │                                                              │
 │  │  Runtime Services:                                           │
 │  ├─ ASR server (port 8080) - Parakeet 600M                      │

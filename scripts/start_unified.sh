@@ -328,6 +328,13 @@ if [ "$ENABLE_LLM" = "true" ]; then
             ;;
         vllm)
             echo "  Mode: vLLM (BF16 full-precision inference)"
+            # Only use --enforce-eager for Blackwell (disables CUDA graphs)
+            # Ampere supports CUDA graphs for better performance
+            VLLM_EXTRA_ARGS=""
+            if [ "${GPU_ARCH:-blackwell}" = "blackwell" ]; then
+                VLLM_EXTRA_ARGS="--enforce-eager"
+                echo "  Note: Using --enforce-eager (Blackwell GPU workaround)"
+            fi
             python -m vllm.entrypoints.openai.api_server \
                 --model "${VLLM_MODEL}" \
                 --host 0.0.0.0 \
@@ -337,7 +344,7 @@ if [ "$ENABLE_LLM" = "true" ]; then
                 --gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION}" \
                 --max-num-seqs 1 \
                 --max-model-len 100000 \
-                --enforce-eager \
+                $VLLM_EXTRA_ARGS \
                 --disable-log-requests \
                 --enable-prefix-caching \
                 > "$LOG_DIR/llm.log" 2>&1 &
