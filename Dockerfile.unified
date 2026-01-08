@@ -5,7 +5,7 @@
 #     - NVIDIA DGX Spark (ARM64 + Blackwell GB10, sm_121) - CUDA 13.1
 #     - x86_64 + Blackwell GPUs (RTX 5090, sm_120) - CUDA 13.0
 #   GPU_ARCH=ampere:
-#     - NVIDIA Ampere GPUs (A100 sm_80, A10/A30/A40/RTX 30xx sm_86) - CUDA 12.4
+#     - NVIDIA Ampere GPUs (A100 sm_80, A10/A30/A40/RTX 30xx sm_86) - CUDA 13.0
 #
 # Purpose: Single container with all services sharing one CUDA context
 # Base: Auto-selected based on GPU_ARCH and target architecture
@@ -50,7 +50,7 @@
 # Blackwell (CUDA 13.x): Requires driver >= 545.x
 #   - DGX Spark (arm64): CUDA 13.1, sm_121
 #   - RTX 5090 (amd64): CUDA 13.0, sm_120
-# Ampere (CUDA 12.4): Requires driver >= 550.x (widely available)
+# Ampere (CUDA 13.0): Requires driver >= 545.x
 #   - A100: sm_80, A10/A30/A40/RTX 30xx: sm_86
 ARG GPU_ARCH=blackwell
 ARG TARGETARCH
@@ -59,9 +59,9 @@ ARG TARGETARCH
 FROM nvidia/cuda:13.1.0-devel-ubuntu24.04 AS base-blackwell-arm64
 FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS base-blackwell-amd64
 
-# Ampere base images (CUDA 12.4 - good driver compatibility)
-FROM nvidia/cuda:12.4.1-devel-ubuntu24.04 AS base-ampere-arm64
-FROM nvidia/cuda:12.4.1-devel-ubuntu24.04 AS base-ampere-amd64
+# Ampere base images (CUDA 13.0 - same as Blackwell x86_64)
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS base-ampere-arm64
+FROM nvidia/cuda:13.0.0-devel-ubuntu24.04 AS base-ampere-amd64
 
 # Select base image based on GPU_ARCH and TARGETARCH
 FROM base-${GPU_ARCH}-${TARGETARCH}
@@ -70,7 +70,7 @@ FROM base-${GPU_ARCH}-${TARGETARCH}
 ARG GPU_ARCH=blackwell
 
 LABEL maintainer="nemotron-speech"
-LABEL description="Unified ASR + TTS + LLM container (blackwell: sm_120/121 CUDA 13.x, ampere: sm_80/86 CUDA 12.4)"
+LABEL description="Unified ASR + TTS + LLM container (blackwell: sm_120/121 CUDA 13.x, ampere: sm_80/86 CUDA 13.0)"
 LABEL version="1.3"
 
 # Prevent interactive prompts

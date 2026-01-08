@@ -287,7 +287,7 @@ Use `./scripts/nemotron.sh` to manage the container:
 # Build for Blackwell GPUs (default) - CUDA 13.x, sm_120/121
 docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
 
-# Build for Ampere GPUs - CUDA 12.4, sm_80/86
+# Build for Ampere GPUs - CUDA 13.0, sm_80/86
 docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 ```
 
@@ -301,7 +301,7 @@ The build compiles from source (2-3 hours):
 | GPU_ARCH | GPUs | CUDA | SM Codes |
 |----------|------|------|----------|
 | `blackwell` (default) | DGX Spark, RTX 5090 | 13.0/13.1 | sm_120, sm_121 |
-| `ampere` | A100, A10, A30, A40, RTX 30xx | 12.4 | sm_80, sm_86 |
+| `ampere` | A100, A10, A30, A40, RTX 30xx | 13.0 | sm_80, sm_86 |
 
 ## Model Requirements
 

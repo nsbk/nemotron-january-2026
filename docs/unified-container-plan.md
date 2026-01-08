@@ -7,7 +7,7 @@ This document describes the plan to combine the three services (ASR, TTS, LLM) c
 | GPU_ARCH | GPUs | SM Codes | CUDA | Build Command |
 |----------|------|----------|------|---------------|
 | `blackwell` (default) | DGX Spark GB10, RTX 5090 | sm_120, sm_121 | 13.0/13.1 | `docker build -f Dockerfile.unified -t nemotron-unified:blackwell .` |
-| `ampere` | A100, A10, A30, A40, RTX 30xx | sm_80, sm_86 | 12.4 | `docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .` |
+| `ampere` | A100, A10, A30, A40, RTX 30xx | sm_80, sm_86 | 13.0 | `docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .` |
 
 ### Architecture-Specific Notes
 
@@ -17,7 +17,7 @@ This document describes the plan to combine the three services (ASR, TTS, LLM) c
 - Triton ptxas symlink required for sm_120a/sm_121a
 
 **Ampere:**
-- Uses CUDA 12.4 with driver >= 550.x (widely available)
+- Uses CUDA 13.0 with driver >= 545.x (same as Blackwell x86_64)
 - Full CUDA graph support in vLLM (better performance)
 - Standard Triton configuration
 
