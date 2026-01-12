@@ -29,15 +29,20 @@ Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source).
 
 ### 2. Start the Container
 
+**IMPORTANT:** When starting with LLM enabled, you MUST specify both `--mode` and `--model` parameters.
+
 ```bash
-# Start with default Q8 model (auto-detected from HuggingFace cache)
-./scripts/nemotron.sh start
+# Start with llama.cpp Q8 model (requires explicit --mode and --model)
+./scripts/nemotron.sh start --mode llamacpp-q8 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf
 
-# Or specify a model explicitly
-./scripts/nemotron.sh start --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf
+# Start with llama.cpp Q4 model
+./scripts/nemotron.sh start --mode llamacpp-q4 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q4_0.gguf
 
-# Start with vLLM instead of llama.cpp (requires ~72GB VRAM)
-./scripts/nemotron.sh start --mode vllm
+# Start with vLLM (requires ~72GB VRAM)
+./scripts/nemotron.sh start --mode vllm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+
+# Start without LLM (ASR + TTS only, no --mode/--model needed)
+./scripts/nemotron.sh start --no-llm
 ```
 
 ### 3. Run the Voice Bot
@@ -242,10 +247,10 @@ Custom services in `pipecat_bots/`:
 Use `./scripts/nemotron.sh` to manage the container:
 
 ```bash
-# Start the container
+# Start the container (--mode and --model required when LLM enabled)
 ./scripts/nemotron.sh start [OPTIONS]
-  --mode MODE         LLM mode: llamacpp-q8 (default), llamacpp-q4, vllm
-  --model PATH        Path to model file
+  --mode MODE         LLM mode: llamacpp-q8, llamacpp-q4, vllm (required with LLM)
+  --model PATH        Path to model file or HF ID (required with LLM)
   --no-asr            Disable ASR service
   --no-tts            Disable TTS service
   --no-llm            Disable LLM service

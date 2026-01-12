@@ -14,8 +14,8 @@
 #   ./scripts/nemotron.sh help                Show this help message
 #
 # Start Options:
-#   --mode MODE          LLM mode: llamacpp-q8 (default), llamacpp-q4, vllm
-#   --model PATH         Path to model file (GGUF for llamacpp, HF model for vllm)
+#   --mode MODE          LLM mode: llamacpp-q8, llamacpp-q4, or vllm (required with LLM)
+#   --model PATH         Path to model file (GGUF for llamacpp, HF model for vllm) (required with LLM)
 #   --no-asr             Disable ASR service
 #   --no-tts             Disable TTS service
 #   --no-llm             Disable LLM service
@@ -23,7 +23,7 @@
 #   --foreground, -f     Run in foreground (attach to container)
 #
 # Examples:
-#   ./scripts/nemotron.sh start --model /path/to/Q8.gguf
+#   ./scripts/nemotron.sh start --mode llamacpp-q8 --model /path/to/Q8.gguf
 #   ./scripts/nemotron.sh start --mode vllm --model nvidia/model-name
 #   ./scripts/nemotron.sh start --no-llm    # ASR + TTS only
 #   ./scripts/nemotron.sh logs llm          # View LLM logs
@@ -40,6 +40,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Default settings
+LLM_MODE=""
 LLAMA_MODEL=""
 VLLM_MODEL=""
 ENABLE_ASR="true"
@@ -47,23 +48,9 @@ ENABLE_TTS="true"
 ENABLE_LLM="true"
 DETACH="true"
 
-# Default model paths (auto-detected from HuggingFace cache)
-DEFAULT_Q8_MODEL="$(find "$HOME/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF" -name "*Q8*.gguf" 2>/dev/null | head -1)"
-DEFAULT_Q4_MODEL="$(find "$HOME/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF" -name "*Q4*.gguf" 2>/dev/null | head -1)"
-DEFAULT_VLLM_MODEL="nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
-
 # HuggingFace model cache paths for ASR and TTS (auto-downloaded on first run)
 HF_CACHE_ASR="$HOME/.cache/huggingface/hub/models--nvidia--nemotron-speech-streaming-en-0.6b"
 HF_CACHE_TTS="$HOME/.cache/huggingface/hub/models--nvidia--magpie_tts_multilingual_357m"
-
-# Auto-detect LLM mode based on available models (prefer Q8 if available)
-if [[ -n "$DEFAULT_Q8_MODEL" ]]; then
-    LLM_MODE="llamacpp-q8"
-elif [[ -n "$DEFAULT_Q4_MODEL" ]]; then
-    LLM_MODE="llamacpp-q4"
-else
-    LLM_MODE="llamacpp-q8"  # Fallback, will error later if no model found
-fi
 
 # =============================================================================
 # Helper functions
@@ -85,8 +72,8 @@ Commands:
   help                Show this help message
 
 Start Options:
-  --mode MODE         LLM mode: llamacpp-q8 (default), llamacpp-q4, vllm
-  --model PATH        Path to model (GGUF for llamacpp, HF id/path for vllm)
+  --mode MODE         LLM mode: llamacpp-q8, llamacpp-q4, or vllm (required with LLM)
+  --model PATH        Path to model (GGUF for llamacpp, HF id/path for vllm) (required with LLM)
   --no-asr            Disable ASR service
   --no-tts            Disable TTS service
   --no-llm            Disable LLM service
@@ -94,8 +81,8 @@ Start Options:
   --foreground, -f    Run in foreground
 
 Examples:
-  # Start with default Q8 model
-  ./scripts/nemotron.sh start --model ~/.cache/huggingface/.../Q8_0.gguf
+  # Start with llama.cpp Q8 model
+  ./scripts/nemotron.sh start --mode llamacpp-q8 --model ~/.cache/huggingface/.../Q8_0.gguf
 
   # Start with vLLM
   ./scripts/nemotron.sh start --mode vllm --model nvidia/model-name
@@ -184,12 +171,15 @@ cmd_start() {
         esac
     done
 
-    # Handle --model after --mode is set
-    if [[ -n "$2" ]] && [[ "$1" == "--model" ]]; then
-        if [[ "$LLM_MODE" == vllm ]]; then
-            VLLM_MODEL="$2"
-        else
-            LLAMA_MODEL="$2"
+    # Validate mandatory parameters when LLM is enabled
+    if [[ "$ENABLE_LLM" == "true" ]]; then
+        if [[ -z "$LLM_MODE" ]]; then
+            echo "ERROR: --mode parameter is required when LLM is enabled"
+            echo ""
+            echo "Valid modes: llamacpp-q8, llamacpp-q4, vllm"
+            echo ""
+            echo "Example: ./scripts/nemotron.sh start --mode llamacpp-q8 --model /path/to/model.gguf"
+            exit 1
         fi
     fi
 
@@ -205,52 +195,34 @@ cmd_start() {
         docker rm "$CONTAINER_NAME" > /dev/null
     fi
 
-    # Validate model path for LLM (use defaults if not specified)
+    # Validate model path for LLM
     if [[ "$ENABLE_LLM" == "true" ]]; then
         case "$LLM_MODE" in
-            llamacpp-q8)
+            llamacpp-q8|llamacpp-q4)
                 if [[ -z "$LLAMA_MODEL" ]]; then
-                    if [[ -n "$DEFAULT_Q8_MODEL" ]]; then
-                        LLAMA_MODEL="$DEFAULT_Q8_MODEL"
-                        echo "Using default Q8 model: $LLAMA_MODEL"
-                    else
-                        echo "ERROR: No Q8 model found in HuggingFace cache"
-                        echo "Download with: huggingface-cli download unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
-                        echo "Or specify: --model /path/to/model.gguf"
-                        exit 1
-                    fi
+                    echo "ERROR: --model parameter is required for mode $LLM_MODE"
+                    echo ""
+                    echo "Example: ./scripts/nemotron.sh start --mode $LLM_MODE --model /path/to/model.gguf"
+                    exit 1
                 fi
                 # Expand ~ and make absolute
                 LLAMA_MODEL="${LLAMA_MODEL/#\~/$HOME}"
                 LLAMA_MODEL="$(cd "$(dirname "$LLAMA_MODEL")" && pwd)/$(basename "$LLAMA_MODEL")"
                 if [[ ! -f "$LLAMA_MODEL" ]]; then
-                    echo "WARNING: Model file not found: $LLAMA_MODEL"
-                fi
-                ;;
-            llamacpp-q4)
-                if [[ -z "$LLAMA_MODEL" ]]; then
-                    if [[ -n "$DEFAULT_Q4_MODEL" ]]; then
-                        LLAMA_MODEL="$DEFAULT_Q4_MODEL"
-                        echo "Using default Q4 model: $LLAMA_MODEL"
-                    else
-                        echo "ERROR: No Q4 model found in HuggingFace cache"
-                        echo "Download with: huggingface-cli download unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
-                        echo "Or specify: --model /path/to/model.gguf"
-                        exit 1
-                    fi
-                fi
-                # Expand ~ and make absolute
-                LLAMA_MODEL="${LLAMA_MODEL/#\~/$HOME}"
-                LLAMA_MODEL="$(cd "$(dirname "$LLAMA_MODEL")" && pwd)/$(basename "$LLAMA_MODEL")"
-                if [[ ! -f "$LLAMA_MODEL" ]]; then
-                    echo "WARNING: Model file not found: $LLAMA_MODEL"
+                    echo "ERROR: Model file not found: $LLAMA_MODEL"
+                    echo ""
+                    echo "Please provide a valid path to a GGUF model file."
+                    exit 1
                 fi
                 ;;
             vllm)
                 if [[ -z "$VLLM_MODEL" ]]; then
-                    VLLM_MODEL="$DEFAULT_VLLM_MODEL"
-                    echo "Using default vLLM model: $VLLM_MODEL"
+                    echo "ERROR: --model parameter is required for mode vllm"
+                    echo ""
+                    echo "Example: ./scripts/nemotron.sh start --mode vllm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+                    exit 1
                 fi
+                # No file existence check for vLLM (HuggingFace models auto-download)
                 ;;
             *)
                 echo "ERROR: Unknown LLM mode: $LLM_MODE"

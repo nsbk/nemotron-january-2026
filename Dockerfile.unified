@@ -21,23 +21,28 @@
 # Build for Ampere:
 #   docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 #
-# Run (llama.cpp mode):
+# IMPORTANT: Use scripts/nemotron.sh for container management (handles all required parameters)
+#   ./scripts/nemotron.sh start --mode llamacpp-q8 --model /path/to/model.gguf
+#   ./scripts/nemotron.sh start --mode vllm --model nvidia/model-name
+#
+# Manual Run (llama.cpp mode) - REQUIRES LLM_MODE and LLAMA_MODEL:
 #   docker run -d --name nemotron --gpus all --ipc=host \
 #     -v $(pwd):/workspace \
 #     -v ~/.cache/huggingface:/hf_cache:ro \
 #     -p 8000:8000 -p 8001:8001 -p 8080:8080 \
-#     -e LLAMA_MODEL=/hf_cache/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q4_K_M.gguf \
+#     -e LLM_MODE=llamacpp-q8 \
+#     -e LLAMA_MODEL=/hf_cache/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf \
 #     -e HUGGINGFACE_ACCESS_TOKEN=$HUGGINGFACE_ACCESS_TOKEN \
 #     nemotron-unified:cuda13 \
 #     bash /workspace/scripts/start_unified.sh
 #
-# Run (vLLM mode):
+# Manual Run (vLLM mode) - REQUIRES LLM_MODE and VLLM_MODEL:
 #   docker run -d --name nemotron --gpus all --ipc=host \
 #     -v $(pwd):/workspace \
-#     -v $(pwd)/models:/workspace/models:ro \
+#     -v ~/.cache/huggingface:/root/.cache/huggingface \
 #     -p 8000:8000 -p 8001:8001 -p 8080:8080 \
 #     -e LLM_MODE=vllm \
-#     -e VLLM_MODEL=/workspace/models/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
+#     -e VLLM_MODEL=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \
 #     nemotron-unified:cuda13 \
 #     bash /workspace/scripts/start_unified.sh
 
