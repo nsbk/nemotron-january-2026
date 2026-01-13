@@ -1,4 +1,18 @@
-FROM dailyco/pipecat-base:latest
+FROM python:3.11-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    curl \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR /app
 
 # Enable bytecode compilation
 ENV UV_COMPILE_BYTECODE=1
@@ -13,7 +27,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-install-project --no-dev
 
 # Copy the application code
-COPY ./pipecat_bots . 
+COPY ./pipecat_bots .
 
 # Specify the main bot file
-RUN cp bot_vllm.py bot.py
+RUN cp bot_interleaved_streaming.py bot.py
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Expose port for WebRTC transport (default Pipecat port)
+EXPOSE 7860
+
+# Default command (can be overridden)
+CMD ["uv", "run", "bot.py", "--host", "0.0.0.0"]

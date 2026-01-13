@@ -11,12 +11,12 @@
 #   ENABLE_TTS   - "true" (default) or "false" - Enable TTS server
 #
 # LLM Configuration:
-#   LLM_MODE                      - "llamacpp-q8" (default), "llamacpp-q4", or "vllm"
+#   LLM_MODE                      - "llamacpp-q8", "llamacpp-q4", or "vllm" (required when LLM enabled)
 #   LLAMA_MODEL                   - Path to GGUF model (required for llamacpp modes)
 #   LLAMA_PARALLEL                - Number of parallel slots (default: 1 for buffered LLM mode)
 #   LLAMA_CTX_SIZE                - Context size (default: 16384, enough for multi-turn voice)
 #   LLAMA_REASONING_BUDGET        - Thinking mode for Q4: 0=disabled, -1=unlimited (default: 0)
-#   VLLM_MODEL                    - Path to HF model dir (required for vllm mode)
+#   VLLM_MODEL                    - HuggingFace model ID or path (required for vllm mode)
 #   VLLM_GPU_MEMORY_UTILIZATION   - GPU memory fraction (default: 0.60)
 #
 # General:
@@ -25,20 +25,20 @@
 #
 # Logs are written to /var/log/nemotron/{asr,tts,llm}.log for external access.
 #
-# Examples:
-#   # Default: all services with llama.cpp Q8
-#   LLAMA_MODEL=/path/to/Q8.gguf bash scripts/start_unified.sh
+# IMPORTANT: Use scripts/nemotron.sh for container management (it sets all required env vars).
+# The examples below show direct invocation for reference only.
 #
-#   # llama.cpp Q4 mode
+# Examples:
+#   # llama.cpp Q8 mode (REQUIRES LLM_MODE and LLAMA_MODEL)
+#   LLM_MODE=llamacpp-q8 LLAMA_MODEL=/path/to/Q8.gguf bash scripts/start_unified.sh
+#
+#   # llama.cpp Q4 mode (REQUIRES LLM_MODE and LLAMA_MODEL)
 #   LLM_MODE=llamacpp-q4 LLAMA_MODEL=/path/to/Q4.gguf bash scripts/start_unified.sh
 #
-#   # vLLM mode
-#   LLM_MODE=vllm VLLM_MODEL=/path/to/model bash scripts/start_unified.sh
+#   # vLLM mode (REQUIRES LLM_MODE and VLLM_MODEL)
+#   LLM_MODE=vllm VLLM_MODEL=nvidia/model-name bash scripts/start_unified.sh
 #
-#   # LLM only (no ASR/TTS)
-#   ENABLE_ASR=false ENABLE_TTS=false LLAMA_MODEL=/path/to/model.gguf bash scripts/start_unified.sh
-#
-#   # ASR + TTS only (no LLM)
+#   # ASR + TTS only (no LLM, no model params needed)
 #   ENABLE_LLM=false bash scripts/start_unified.sh
 
 set -e
@@ -49,7 +49,7 @@ set -e
 ENABLE_LLM="${ENABLE_LLM:-true}"
 ENABLE_ASR="${ENABLE_ASR:-true}"
 ENABLE_TTS="${ENABLE_TTS:-true}"
-LLM_MODE="${LLM_MODE:-llamacpp-q8}"
+LLM_MODE="${LLM_MODE:-}"
 # vLLM needs ~15 minutes to load the model, llama.cpp only needs ~60s
 if [[ "$LLM_MODE" == "vllm" ]]; then
     SERVICE_TIMEOUT="${SERVICE_TIMEOUT:-900}"
@@ -92,6 +92,12 @@ fi
 # Validate LLM configuration if enabled
 # =============================================================================
 if [ "$ENABLE_LLM" = "true" ]; then
+    if [ -z "$LLM_MODE" ]; then
+        echo "ERROR: LLM_MODE must be set when ENABLE_LLM=true"
+        echo "  Valid modes: llamacpp-q8, llamacpp-q4, vllm"
+        echo "  Example: LLM_MODE=llamacpp-q8 LLAMA_MODEL=/path/to/model.gguf"
+        exit 1
+    fi
     case "$LLM_MODE" in
         llamacpp-q8|llamacpp-q4)
             if [ -z "$LLAMA_MODEL" ]; then
@@ -149,7 +155,7 @@ wait_for_http_health() {
             echo " FAILED"
             echo "ERROR: $name process exited unexpectedly"
             echo "Check logs: $LOG_DIR/$(echo $name | tr '[:upper:]' '[:lower:]').log"
-            return 1
+    	    return 1
         fi
 
         # Try HTTP health check
@@ -328,6 +334,13 @@ if [ "$ENABLE_LLM" = "true" ]; then
             ;;
         vllm)
             echo "  Mode: vLLM (BF16 full-precision inference)"
+            # Only use --enforce-eager for Blackwell (disables CUDA graphs)
+            # Ampere supports CUDA graphs for better performance
+            VLLM_EXTRA_ARGS=""
+            if [ "${GPU_ARCH:-blackwell}" = "blackwell" ]; then
+                VLLM_EXTRA_ARGS="--enforce-eager"
+                echo "  Note: Using --enforce-eager (Blackwell GPU workaround)"
+            fi
             python -m vllm.entrypoints.openai.api_server \
                 --model "${VLLM_MODEL}" \
                 --host 0.0.0.0 \
@@ -337,7 +350,7 @@ if [ "$ENABLE_LLM" = "true" ]; then
                 --gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION}" \
                 --max-num-seqs 1 \
                 --max-model-len 100000 \
-                --enforce-eager \
+                $VLLM_EXTRA_ARGS \
                 --disable-log-requests \
                 --enable-prefix-caching \
                 > "$LOG_DIR/llm.log" 2>&1 &

@@ -7,33 +7,42 @@ This repo is sample code for building voice agents with three NVIDIA open source
   - Nemotron 3 Nano LLM
   - Magpie TTS (Preview)
 
-Run locally on an NVIDIA DGX Spark or RTX 5090. Or deploy to the cloud with Modal and Pipecat Cloud.
+Run locally on an NVIDIA DGX Spark, RTX 5090 (Blackwell), or Ampere GPUs (A100, A10, RTX 30xx). Or deploy to the cloud with Modal and Pipecat Cloud.
 
 Accompanying blog posts:
 - [Nemotron Speech ASR Open Source Model Launch Post](https://huggingface.co/blog/nvidia/nemotron-speech-asr-scaling-voice-agents)
 - [More About Voice Agent Architectures and This Agent's Design](https://www.daily.co/blog/building-voice-agents-with-nvidia-open-models/)
 
-## Quick start - Run everything locally (DGX Spark or RTX 5090)
+## Quick start - Run everything locally (DGX Spark, RTX 5090, or Ampere GPUs)
 
 ### 1. Build the Unified Container
 
 ```bash
-docker build -f Dockerfile.unified -t nemotron-unified:cuda13 .
+# For Blackwell GPUs (DGX Spark, RTX 5090) - default
+docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
+
+# For Ampere GPUs (A100, A10, A30, A40, RTX 30xx)
+docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 ```
 
-Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source for CUDA 13.1 / Blackwell).
+Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source).
 
 ### 2. Start the Container
 
+**IMPORTANT:** When starting with LLM enabled, you MUST specify both `--mode` and `--model` parameters.
+
 ```bash
-# Start with default Q8 model (auto-detected from HuggingFace cache)
-./scripts/nemotron.sh start
+# Start with llama.cpp Q8 model (requires explicit --mode and --model)
+./scripts/nemotron.sh start --mode llamacpp-q8 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf
 
-# Or specify a model explicitly
-./scripts/nemotron.sh start --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf
+# Start with llama.cpp Q4 model
+./scripts/nemotron.sh start --mode llamacpp-q4 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q4_0.gguf
 
-# Start with vLLM instead of llama.cpp (requires ~72GB VRAM)
-./scripts/nemotron.sh start --mode vllm
+# Start with vLLM (requires ~72GB VRAM)
+./scripts/nemotron.sh start --mode vllm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+
+# Start without LLM (ASR + TTS only, no --mode/--model needed)
+./scripts/nemotron.sh start --no-llm
 ```
 
 ### 3. Run the Voice Bot
@@ -238,10 +247,10 @@ Custom services in `pipecat_bots/`:
 Use `./scripts/nemotron.sh` to manage the container:
 
 ```bash
-# Start the container
+# Start the container (--mode and --model required when LLM enabled)
 ./scripts/nemotron.sh start [OPTIONS]
-  --mode MODE         LLM mode: llamacpp-q8 (default), llamacpp-q4, vllm
-  --model PATH        Path to model file
+  --mode MODE         LLM mode: llamacpp-q8, llamacpp-q4, vllm (required with LLM)
+  --model PATH        Path to model file or HF ID (required with LLM)
   --no-asr            Disable ASR service
   --no-tts            Disable TTS service
   --no-llm            Disable LLM service
@@ -280,16 +289,24 @@ Use `./scripts/nemotron.sh` to manage the container:
 ## Building the Container
 
 ```bash
-# Build the unified container (2-3 hours)
-docker build -f Dockerfile.unified -t nemotron-unified:cuda13 .
+# Build for Blackwell GPUs (default) - CUDA 13.x, sm_120/121
+docker build -f Dockerfile.unified -t nemotron-unified:blackwell .
+
+# Build for Ampere GPUs - CUDA 13.0, sm_80/86
+docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 ```
 
-The build compiles from source for CUDA 13.1 / Blackwell (sm_121):
+The build compiles from source (2-3 hours):
 - PyTorch (with NVRTC support)
 - torchaudio
 - NeMo ASR/TTS
 - vLLM
 - llama.cpp
+
+| GPU_ARCH | GPUs | CUDA | SM Codes |
+|----------|------|------|----------|
+| `blackwell` (default) | DGX Spark, RTX 5090 | 13.0/13.1 | sm_120, sm_121 |
+| `ampere` | A100, A10, A30, A40, RTX 30xx | 13.0 | sm_80, sm_86 |
 
 ## Model Requirements
 
