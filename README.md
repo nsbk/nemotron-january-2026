@@ -29,16 +29,18 @@ Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source).
 
 ### 2. Start the Container
 
-Configuration is managed via `.env` file. Choose a template and customize:
+Configuration is managed via `.env` file:
 
 ```bash
-# Setup environment (choose appropriate template)
-cp .env.llamacpp-q8.example .env    # Most common: Q8 quantization
-cp .env.llamacpp-q4.example .env    # For 32GB GPUs
-cp .env.vllm.example .env           # For cloud/multi-GPU
-cp .env.no-llm.example .env         # ASR + TTS only
+# Copy the example configuration
+cp .env.example .env
 
-# Edit .env to set your model path (use container path /models/...)
+# Edit .env to configure your setup:
+#   - COMPOSE_PROFILES: llamacpp or vllm
+#   - LLM_MODE: llamacpp-q8, llamacpp-q4, or vllm
+#   - LLAMA_MODEL: path to GGUF model (container path)
+#   - ASR_MODEL: nemotron (English) or canary (multilingual)
+#   - TTS_LANGUAGE: en, es, de, fr, vi, it, zh
 vim .env
 
 # Start AI services
@@ -205,11 +207,9 @@ Serve the bot over HTTPS on your Tailscale network using `tailscale serve`. The 
 Start the unified container with AI services (ASR, TTS, LLM):
 
 ```bash
-# Setup environment (choose appropriate template)
-cp .env.llamacpp-q8.example .env    # Or .env.llamacpp-q4.example, .env.vllm.example
-
-# Edit .env to set your model path (use container path /models/...)
-vim .env
+# Copy and configure environment
+cp .env.example .env
+vim .env                    # Set LLAMA_MODEL path and other settings
 
 # Start services
 docker compose up -d
@@ -300,6 +300,62 @@ tailscale status
 **WebSocket/WebRTC failures**: `tailscale serve` automatically handles WebSocket upgrades
 
 
+## Spanish Language Support
+
+The voice agent supports Spanish using NVIDIA Canary ASR models. Canary provides multilingual support including Spanish, German, French, and English.
+
+### Quick Start - Spanish
+
+```bash
+# Copy and configure environment
+cp .env.example .env
+
+# Edit .env to enable Spanish:
+#   ASR_MODEL=canary
+#   ASR_SOURCE_LANG=es
+#   ASR_TARGET_LANG=es
+#   TTS_LANGUAGE=es
+vim .env
+
+# Start AI services
+docker compose up -d
+
+# Run the bot
+uv run pipecat_bots/bot_interleaved_streaming.py
+```
+
+### Important: Latency Trade-off
+
+Spanish uses Canary ASR which has **higher latency (~1.5s)** compared to English with Nemotron-Speech (~160ms). This is due to architectural differences:
+
+| ASR Model | Languages | Latency | Architecture |
+|-----------|-----------|---------|--------------|
+| Nemotron-Speech (default) | English only | ~160ms | CTC-based streaming |
+| Canary | es, de, fr, en | ~1.5s | Encoder-decoder |
+
+For lowest latency voice agents, use English with `ASR_MODEL=nemotron` (the default).
+
+### ASR and TTS Configuration
+
+Configure ASR and TTS in your `.env` file:
+
+```bash
+# Select ASR model
+ASR_MODEL=canary                          # Use Canary for Spanish
+# ASR_MODEL=nemotron                      # Use Nemotron-Speech for English (default)
+
+# Canary model options (only used when ASR_MODEL=canary)
+CANARY_MODEL=nvidia/canary-1b-flash       # 4 languages, lower latency (recommended)
+# CANARY_MODEL=nvidia/canary-1b-v2        # 25 languages, higher accuracy
+
+# Language settings
+ASR_SOURCE_LANG=es                        # What the user speaks
+ASR_TARGET_LANG=es                        # Output language (usually same as source)
+
+# TTS output language (must match ASR for natural conversation)
+TTS_LANGUAGE=es                           # Supported: en, es, de, fr, vi, it, zh
+```
+
 ## Bot Variants
 
 Three bot implementations are available:
@@ -358,13 +414,10 @@ Use Docker Compose to manage the unified container. Configuration is managed via
 ### Quick Start
 
 ```bash
-# 1. Choose and copy a configuration template
-cp .env.llamacpp-q8.example .env    # Most common: Q8 quantization
-cp .env.llamacpp-q4.example .env    # For 32GB GPUs
-cp .env.vllm.example .env           # For cloud/multi-GPU
-cp .env.no-llm.example .env         # ASR + TTS only
+# 1. Copy the example configuration
+cp .env.example .env
 
-# 2. Edit .env to set your model path (see template comments)
+# 2. Edit .env to configure your setup (see comments in file)
 vim .env
 
 # 3. Start services
@@ -458,7 +511,9 @@ The build compiles from source (2-3 hours):
 
 | Model | Source | Size | Used With |
 |-------|--------|------|-----------|
-| Nemotron Speech ASR | HuggingFace `nvidia/nemotron-speech-streaming-en-0.6b` (auto-downloaded) | ~2.4GB | All configurations |
+| Nemotron Speech ASR | HuggingFace `nvidia/nemotron-speech-streaming-en-0.6b` (auto-downloaded) | ~2.4GB | English ASR (default) |
+| Canary-1B-Flash | HuggingFace `nvidia/canary-1b-flash` (auto-downloaded) | ~3.5GB | Multilingual ASR (es, de, fr, en) |
+| Canary-1B-V2 | HuggingFace `nvidia/canary-1b-v2` (auto-downloaded) | ~4GB | 25-language ASR |
 | Nemotron-3-Nano Q8 | HuggingFace `unsloth/Nemotron-3-Nano-30B-A3B-GGUF` | ~32GB | llama.cpp on DGX Spark |
 | Nemotron-3-Nano Q4 | HuggingFace `unsloth/Nemotron-3-Nano-30B-A3B-GGUF` | ~16GB | llama.cpp on RTX 5090 |
 | Nemotron-3-Nano BF16 | HuggingFace `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | ~72GB | vLLM (cloud/multi-GPU) |

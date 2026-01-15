@@ -8,14 +8,9 @@
 #   - vllm: For vLLM mode (host network for DNS workaround)
 #
 # Usage:
-#   # Setup environment (choose appropriate template)
-#   cp .env.llamacpp-q8.example .env  # Most common: Q8 mode
-#   cp .env.llamacpp-q4.example .env  # For 32GB GPUs
-#   cp .env.vllm.example .env         # For cloud/multi-GPU
-#   cp .env.no-llm.example .env       # ASR + TTS only
-#
-#   # Edit .env to set model paths
-#   vim .env
+#   # Copy and configure environment
+#   cp .env.example .env
+#   vim .env                          # Set model paths and options
 #
 #   # Start services
 #   docker compose up -d
@@ -78,6 +73,12 @@ services:
       - ENABLE_ASR=${ENABLE_ASR:-true}
       - ENABLE_TTS=${ENABLE_TTS:-true}
       - ENABLE_LLM=${ENABLE_LLM:-true}
+
+      # ASR configuration
+      - ASR_MODEL=${ASR_MODEL:-nemotron}
+      - CANARY_MODEL=${CANARY_MODEL:-nvidia/canary-1b-flash}
+      - ASR_SOURCE_LANG=${ASR_SOURCE_LANG:-es}
+      - ASR_TARGET_LANG=${ASR_TARGET_LANG:-es}
 
       # LLM configuration
       - LLM_MODE=${LLM_MODE}
@@ -160,6 +161,12 @@ services:
       - ENABLE_ASR=${ENABLE_ASR:-true}
       - ENABLE_TTS=${ENABLE_TTS:-true}
       - ENABLE_LLM=${ENABLE_LLM:-true}
+
+      # ASR configuration
+      - ASR_MODEL=${ASR_MODEL:-nemotron}
+      - CANARY_MODEL=${CANARY_MODEL:-nvidia/canary-1b-flash}
+      - ASR_SOURCE_LANG=${ASR_SOURCE_LANG:-es}
+      - ASR_TARGET_LANG=${ASR_TARGET_LANG:-es}
 
       # vLLM configuration
       - LLM_MODE=vllm

@@ -10,6 +10,12 @@
 #   ENABLE_ASR   - "true" (default) or "false" - Enable ASR server
 #   ENABLE_TTS   - "true" (default) or "false" - Enable TTS server
 #
+# ASR Configuration:
+#   ASR_MODEL                     - "nemotron" (default, English) or "canary" (multilingual)
+#   CANARY_MODEL                  - Canary model name (default: nvidia/canary-1b-flash)
+#   ASR_SOURCE_LANG               - Source language for Canary (default: es)
+#   ASR_TARGET_LANG               - Target language for Canary (default: es)
+#
 # LLM Configuration:
 #   LLM_MODE                      - "llamacpp-q8", "llamacpp-q4", or "vllm" (required when LLM enabled)
 #   LLAMA_MODEL                   - Path to GGUF model (required for llamacpp modes)
@@ -50,6 +56,17 @@ ENABLE_LLM="${ENABLE_LLM:-true}"
 ENABLE_ASR="${ENABLE_ASR:-true}"
 ENABLE_TTS="${ENABLE_TTS:-true}"
 LLM_MODE="${LLM_MODE:-}"
+
+# ASR model selection (default: nemotron for English, lowest latency)
+# Options:
+#   nemotron - Nemotron-Speech (English only, ~160ms latency)
+#   canary   - Canary (multilingual including Spanish, ~1500ms latency)
+ASR_MODEL="${ASR_MODEL:-nemotron}"
+
+# Canary-specific settings (only used when ASR_MODEL=canary)
+CANARY_MODEL="${CANARY_MODEL:-nvidia/canary-1b-flash}"
+ASR_SOURCE_LANG="${ASR_SOURCE_LANG:-es}"
+ASR_TARGET_LANG="${ASR_TARGET_LANG:-es}"
 # vLLM needs ~15 minutes to load the model, llama.cpp only needs ~60s
 if [[ "$LLM_MODE" == "vllm" ]]; then
     SERVICE_TIMEOUT="${SERVICE_TIMEOUT:-900}"
@@ -74,7 +91,15 @@ echo "============================================"
 echo "  Date: $(date)"
 echo ""
 echo "  Services:"
-echo "    ASR: $([ "$ENABLE_ASR" = "true" ] && echo "ENABLED (port 8080)" || echo "DISABLED")"
+if [ "$ENABLE_ASR" = "true" ]; then
+    if [ "$ASR_MODEL" = "canary" ]; then
+        echo "    ASR: ENABLED (port 8080, model: canary, lang: $ASR_SOURCE_LANG)"
+    else
+        echo "    ASR: ENABLED (port 8080, model: nemotron)"
+    fi
+else
+    echo "    ASR: DISABLED"
+fi
 echo "    TTS: $([ "$ENABLE_TTS" = "true" ] && echo "ENABLED (port 8001)" || echo "DISABLED")"
 echo "    LLM: $([ "$ENABLE_LLM" = "true" ] && echo "ENABLED (port 8000, mode: $LLM_MODE)" || echo "DISABLED")"
 echo ""
@@ -264,12 +289,28 @@ if [ "$ENABLE_TTS" = "true" ]; then
     echo "  TTS started (PID $TTS_PID, log: $LOG_DIR/tts.log)"
 fi
 
-# Start ASR server (Parakeet streaming ASR via NeMo)
+# Start ASR server (Nemotron-Speech or Canary based on ASR_MODEL)
 if [ "$ENABLE_ASR" = "true" ]; then
     STEP=$((STEP + 1))
-    echo "[$STEP/$TOTAL_STEPS] Starting ASR server on port 8080..."
-    python -m nemotron_speech.server --port 8080 > "$LOG_DIR/asr.log" 2>&1 &
-    ASR_PID=$!
+    echo "[$STEP/$TOTAL_STEPS] Starting ASR server on port 8080 (model: $ASR_MODEL)..."
+
+    if [ "$ASR_MODEL" = "canary" ]; then
+        # Canary: Multilingual ASR (Spanish, German, French, English)
+        # Higher latency (~1.5s) but supports multiple languages
+        echo "  Using Canary model: $CANARY_MODEL"
+        echo "  Language: source=$ASR_SOURCE_LANG, target=$ASR_TARGET_LANG"
+        python -m nemotron_speech.canary_server \
+            --port 8080 \
+            --model "$CANARY_MODEL" \
+            --source-lang "$ASR_SOURCE_LANG" \
+            --target-lang "$ASR_TARGET_LANG" \
+            > "$LOG_DIR/asr.log" 2>&1 &
+        ASR_PID=$!
+    else
+        # Default: Nemotron-Speech (Parakeet) - English only, lowest latency (~160ms)
+        python -m nemotron_speech.server --port 8080 > "$LOG_DIR/asr.log" 2>&1 &
+        ASR_PID=$!
+    fi
     echo "  ASR started (PID $ASR_PID, log: $LOG_DIR/asr.log)"
 fi
 

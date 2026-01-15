@@ -167,6 +167,11 @@ class LlamaCppBufferedLLMService(AIService):
         max_context_tokens: int = 16384
         context_reserve_tokens: int = 2048
 
+        # Prompt format options
+        # disable_thinking: Add <think></think> to disable thinking mode (Nemotron-specific)
+        # Set to False for non-Nemotron models (Mistral, Llama, etc.)
+        disable_thinking: bool = False
+
     def __init__(
         self,
         *,
@@ -328,14 +333,25 @@ class LlamaCppBufferedLLMService(AIService):
             self._continue_event.set()
 
     def _format_messages(self, messages: list) -> str:
-        """Format messages as ChatML prompt with thinking disabled."""
+        """Format messages as ChatML prompt.
+
+        For Nemotron models with thinking mode, adds <think></think> to disable it.
+        For other models (Mistral, Llama, etc.), uses standard ChatML format.
+        """
         prompt_parts = []
         for msg in messages:
             role = msg.get("role", "user")
             content = msg.get("content", "")
             prompt_parts.append(f"<|im_start|>{role}\n{content}<|im_end|>")
-        # Always disable thinking for voice agents
-        prompt_parts.append("<|im_start|>assistant\n<think></think>")
+
+        # Start assistant turn
+        if self._params.disable_thinking:
+            # Nemotron-specific: disable thinking mode for voice agents
+            prompt_parts.append("<|im_start|>assistant\n<think></think>")
+        else:
+            # Standard ChatML format for other models
+            prompt_parts.append("<|im_start|>assistant\n")
+
         return "\n".join(prompt_parts)
 
     def _estimate_tokens(self, msg: dict) -> int:
@@ -441,6 +457,12 @@ class LlamaCppBufferedLLMService(AIService):
         adapter = OpenAILLMAdapter()
         logger.debug(f"{self}: Generating chat: {adapter.get_messages_for_logging(context)}")
 
+        # Log last few messages for debugging empty responses
+        if len(messages) >= 2:
+            last_user = next((m for m in reversed(messages) if m.get("role") == "user"), None)
+            if last_user:
+                logger.info(f"LlamaCppBufferedLLM: Last user message: {last_user.get('content', '')[:200]}")
+
         # Segment limits - first segment uses equal max/hard_max
         max_tokens = self._params.first_segment_max_tokens
         hard_max_tokens = self._params.first_segment_hard_max_tokens
@@ -532,6 +554,15 @@ class LlamaCppBufferedLLMService(AIService):
                 logger.info(
                     f"LlamaCppBufferedLLM: Complete in {elapsed_ms:.0f}ms, "
                     f"{chunk_num} chunk{'s' if chunk_num != 1 else ''}"
+                )
+
+            # Debug: Log warning when LLM produces no output
+            if chunk_num == 0:
+                buffer_content = repr(self._buffer.text) if self._buffer else "None"
+                logger.warning(
+                    f"LlamaCppBufferedLLM: No chunks emitted! "
+                    f"generated_text={self._generated_text!r}, "
+                    f"buffer_content={buffer_content}"
                 )
 
             await self.stop_processing_metrics()
