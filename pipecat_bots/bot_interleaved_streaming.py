@@ -206,7 +206,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
                 "Avoid special characters. Use only simple, plain text sentences. "
                 "Always punctuate your responses using standard Spanish punctuation: commas, periods, question marks, exclamation points, and inverted question and exclamation marks. "
                 "Always spell out numbers as words. "
-                "Start with a simple greeting like: Hola, de qué quieres hablar hoy? "
+                "Start with a simple greeting like: ¿Hola, de qué quieres hablar hoy? "
             ),
         },
         {
