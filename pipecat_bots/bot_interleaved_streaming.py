@@ -211,7 +211,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         },
         {
             "role": "user",
-            "content": "Di hola y preguntame como estoy",
+            "content": "Di hola y pregúntame cómo estoy",
         },
     ]
 
