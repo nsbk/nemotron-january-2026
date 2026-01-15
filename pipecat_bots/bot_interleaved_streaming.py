@@ -278,6 +278,7 @@ async def bot(runner_args: RunnerArguments):
 
 
 if __name__ == "__main__":
-    from pipecat.runner.run import main
+    # Use custom runner with health endpoints
+    from runner import main
 
-    main()
+    main(bot)

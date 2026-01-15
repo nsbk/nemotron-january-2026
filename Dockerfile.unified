@@ -21,9 +21,9 @@
 # Build for Ampere:
 #   docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unified:ampere .
 #
-# IMPORTANT: Use scripts/nemotron.sh for container management (handles all required parameters)
-#   ./scripts/nemotron.sh start --mode llamacpp-q8 --model /path/to/model.gguf
-#   ./scripts/nemotron.sh start --mode vllm --model nvidia/model-name
+# IMPORTANT: Use docker-compose for container management (configured via .env file)
+#   cp .env.llamacpp-q8.example .env && vim .env && docker compose up -d
+#   See docker-compose.yaml and .env.example for configuration options.
 #
 # Manual Run (llama.cpp mode) - REQUIRES LLM_MODE and LLAMA_MODEL:
 #   docker run -d --name nemotron --gpus all --ipc=host \

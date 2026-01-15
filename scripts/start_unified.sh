@@ -25,7 +25,7 @@
 #
 # Logs are written to /var/log/nemotron/{asr,tts,llm}.log for external access.
 #
-# IMPORTANT: Use scripts/nemotron.sh for container management (it sets all required env vars).
+# IMPORTANT: Use docker-compose for container management (configured via .env file).
 # The examples below show direct invocation for reference only.
 #
 # Examples:
