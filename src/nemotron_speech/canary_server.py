@@ -136,9 +136,6 @@ class CanaryASRServer:
 
         # Run transcription to force CUDA kernels to compile
         with torch.inference_mode():
-            audio_tensor = torch.from_numpy(warmup_audio).unsqueeze(0).cuda()
-            audio_len = torch.tensor([len(warmup_audio)], device='cuda')
-
             # Use the transcribe method for warmup
             _ = self.model.transcribe(
                 audio=warmup_audio,
