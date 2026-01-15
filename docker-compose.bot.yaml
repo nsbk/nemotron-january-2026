@@ -1,0 +1,49 @@
+# Docker Compose configuration for running the Nemotron bot in a container
+#
+# Prerequisites:
+# 1. AI services running (via docker compose up -d)
+# 2. Configuration in .env file (see .env.example for all options)
+#
+# Usage:
+#   docker compose -f docker-compose.bot.yaml up --build    # Build and start
+#   docker compose -f docker-compose.bot.yaml up -d         # Run detached
+#   docker compose -f docker-compose.bot.yaml logs -f       # View logs
+#   docker compose -f docker-compose.bot.yaml down          # Stop
+#
+# Configuration: All bot settings in .env file (shared with main docker-compose.yaml)
+
+services:
+  bot:
+    image: ${BOT_IMAGE:-nemotron-bot:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: ${BOT_CONTAINER_NAME:-nemotron-bot}
+
+    # Use host network to access AI services on localhost
+    network_mode: host
+
+    environment:
+      # AI service URLs (connect to host services)
+      - NVIDIA_ASR_URL=${NVIDIA_ASR_URL:-ws://localhost:8080}
+      - NVIDIA_TTS_URL=${NVIDIA_TTS_URL:-http://localhost:8001}
+      - NVIDIA_LLAMA_CPP_URL=${NVIDIA_LLAMA_CPP_URL:-http://localhost:8000}
+
+      # Bot configuration
+      - BOT_PORT=${BOT_PORT:-7860}
+      - ENABLE_RECORDING=${ENABLE_RECORDING:-false}
+
+      # Daily.co transport (optional)
+      - DAILY_API_KEY=${DAILY_API_KEY:-}
+      - DAILY_ROOM_URL=${DAILY_ROOM_URL:-}
+
+    # Automatically restart on failure
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${BOT_PORT:-7860}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

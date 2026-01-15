@@ -29,20 +29,20 @@ Build time: 2-3 hours (builds PyTorch, NeMo, vLLM, llama.cpp from source).
 
 ### 2. Start the Container
 
-**IMPORTANT:** When starting with LLM enabled, you MUST specify both `--mode` and `--model` parameters.
+Configuration is managed via `.env` file. Choose a template and customize:
 
 ```bash
-# Start with llama.cpp Q8 model (requires explicit --mode and --model)
-./scripts/nemotron.sh start --mode llamacpp-q8 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q8_0.gguf
+# Setup environment (choose appropriate template)
+cp .env.llamacpp-q8.example .env    # Most common: Q8 quantization
+cp .env.llamacpp-q4.example .env    # For 32GB GPUs
+cp .env.vllm.example .env           # For cloud/multi-GPU
+cp .env.no-llm.example .env         # ASR + TTS only
 
-# Start with llama.cpp Q4 model
-./scripts/nemotron.sh start --mode llamacpp-q4 --model ~/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/.../Q4_0.gguf
+# Edit .env to set your model path (use container path /models/...)
+vim .env
 
-# Start with vLLM (requires ~72GB VRAM)
-./scripts/nemotron.sh start --mode vllm --model nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-
-# Start without LLM (ASR + TTS only, no --mode/--model needed)
-./scripts/nemotron.sh start --no-llm
+# Start AI services
+docker compose up -d
 ```
 
 ### 3. Run the Voice Bot
@@ -190,6 +190,115 @@ pipecat cloud agent start gdx-spark-bot --use-daily
 
 [See docs](https://docs.pipecat.ai/deployment/pipecat-cloud/fundamentals/active-sessions) for REST and Python usage.
 
+## Quick start - HTTPS on Tailscale Network
+
+Serve the bot over HTTPS on your Tailscale network using `tailscale serve`. The bot will be accessible at `https://your-hostname.your-tailnet.ts.net` from any device on your Tailscale network without exposing it to the internet.
+
+### Prerequisites
+
+1. **Tailscale installed on host**: Install from [tailscale.com](https://tailscale.com/download)
+2. **Tailscale authenticated**: Run `tailscale up` to connect your machine to your tailnet
+3. **AI services running**: Start unified container with AI services first (see local deployment above)
+
+### 1. Start AI Services
+
+Start the unified container with AI services (ASR, TTS, LLM):
+
+```bash
+# Setup environment (choose appropriate template)
+cp .env.llamacpp-q8.example .env    # Or .env.llamacpp-q4.example, .env.vllm.example
+
+# Edit .env to set your model path (use container path /models/...)
+vim .env
+
+# Start services
+docker compose up -d
+```
+
+### 2. Run the Bot
+
+**Option A: Run bot locally on host**
+
+```bash
+uv run pipecat_bots/bot_interleaved_streaming.py
+```
+
+**Option B: Run bot in Docker container**
+
+```bash
+# Build and start the bot container
+docker compose -f docker-compose.bot.yaml up --build
+
+# Or run detached (in background)
+docker compose -f docker-compose.bot.yaml up -d
+
+# View logs
+docker compose -f docker-compose.bot.yaml logs -f
+
+# Stop the bot
+docker compose -f docker-compose.bot.yaml down
+```
+
+Both options will listen on localhost:7860.
+
+### 3. Enable Tailscale HTTPS
+
+Use `tailscale serve` to expose the bot over HTTPS on your Tailscale network:
+
+```bash
+tailscale serve https / http://localhost:7860
+```
+
+This command:
+- Automatically provisions TLS certificates from Tailscale
+- Makes the bot accessible at `https://your-machine-name.your-tailnet.ts.net`
+- Only accessible to devices on your Tailscale network (not internet-exposed)
+
+### 4. Access the Bot
+
+From any device on your Tailscale network:
+
+```bash
+# Check what's being served
+tailscale serve status
+
+# Test health endpoint (replace with your actual hostname)
+curl https://your-machine-name.your-tailnet.ts.net/health
+
+# Open in browser
+open https://your-machine-name.your-tailnet.ts.net/client
+```
+
+### Management Commands
+
+```bash
+# Check Tailscale serve status
+tailscale serve status
+
+# Stop serving (removes HTTPS exposure)
+tailscale serve reset
+
+# View Tailscale connection status
+tailscale status
+```
+
+### Architecture
+
+- **Tailscale**: Provides VPN connectivity, automatic TLS certificates, and HTTPS reverse proxy
+- **Bot Service**: Runs on host, accesses AI services on localhost
+- **Security**: Accessible only to Tailscale network (not internet-exposed)
+
+### Troubleshooting
+
+**Certificate errors**: Verify MagicDNS is enabled in Tailscale admin console (Settings > DNS)
+
+**Bot unreachable**:
+- Check AI services are running: `docker compose ps`
+- Verify bot is running on port 7860: `curl http://localhost:7860/health`
+- Check Tailscale serve status: `tailscale serve status`
+
+**WebSocket/WebRTC failures**: `tailscale serve` automatically handles WebSocket upgrades
+
 
 ## Bot Variants
 
@@ -244,39 +353,76 @@ Custom services in `pipecat_bots/`:
 
 ## Local Container Management
 
-Use `./scripts/nemotron.sh` to manage the container:
+Use Docker Compose to manage the unified container. Configuration is managed via `.env` file.
+
+### Quick Start
 
 ```bash
-# Start the container (--mode and --model required when LLM enabled)
-./scripts/nemotron.sh start [OPTIONS]
-  --mode MODE         LLM mode: llamacpp-q8, llamacpp-q4, vllm (required with LLM)
-  --model PATH        Path to model file or HF ID (required with LLM)
-  --no-asr            Disable ASR service
-  --no-tts            Disable TTS service
-  --no-llm            Disable LLM service
-  -f, --foreground    Run in foreground (default: detached)
+# 1. Choose and copy a configuration template
+cp .env.llamacpp-q8.example .env    # Most common: Q8 quantization
+cp .env.llamacpp-q4.example .env    # For 32GB GPUs
+cp .env.vllm.example .env           # For cloud/multi-GPU
+cp .env.no-llm.example .env         # ASR + TTS only
 
-# Stop the container
-./scripts/nemotron.sh stop
+# 2. Edit .env to set your model path (see template comments)
+vim .env
 
-# Restart the container
-./scripts/nemotron.sh restart [OPTIONS]
+# 3. Start services
+docker compose up -d
+```
 
+### Management Commands
+
+```bash
 # Check status
-./scripts/nemotron.sh status
+docker compose ps
 
-# View logs
-./scripts/nemotron.sh logs          # All logs interleaved
-./scripts/nemotron.sh logs asr      # ASR logs only
-./scripts/nemotron.sh logs tts      # TTS logs only
-./scripts/nemotron.sh logs llm      # LLM logs only
+# View logs (all services)
+docker compose logs -f
+
+# View logs for specific service patterns
+docker compose logs -f | grep "\[ASR\]"
+docker compose logs -f | grep "\[TTS\]"
+docker compose logs -f | grep "\[LLM\]"
 
 # Open shell in container
-./scripts/nemotron.sh shell
+docker compose exec nemotron-llamacpp bash  # For llamacpp mode
+docker compose exec nemotron-vllm bash      # For vLLM mode
 
-# Show help
-./scripts/nemotron.sh help
+# Stop services
+docker compose down
+
+# Restart services
+docker compose restart
 ```
+
+### Configuration Examples
+
+**llama.cpp Q8 mode (most common)**:
+```bash
+# .env
+COMPOSE_PROFILES=llamacpp
+LLM_MODE=llamacpp-q8
+LLAMA_MODEL=/root/.cache/huggingface/hub/models--unsloth--Nemotron-3-Nano-30B-A3B-GGUF/snapshots/HASH/Q8_0.gguf
+```
+
+**vLLM mode**:
+```bash
+# .env
+COMPOSE_PROFILES=vllm
+LLM_MODE=vllm
+VLLM_MODEL=nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+SERVICE_TIMEOUT=900
+```
+
+**ASR + TTS only (no LLM)**:
+```bash
+# .env
+COMPOSE_PROFILES=llamacpp
+ENABLE_LLM=false
+```
+
+See `.env.example` for all configuration options and [MIGRATION.md](MIGRATION.md) for detailed migration guide from `scripts/nemotron.sh`.
 
 ### Service Endpoints
 

@@ -50,6 +50,12 @@ env/
 # Claude Code
 .claude/
 
+# Environment files with secrets and configuration
+.env
+.env.tailscale
+.env.local
+.env.*.local
+
 # Lock files (large and platform-specific)
 uv.lock
 
@@ -77,3 +83,7 @@ Thumbs.db
 
 # GGUF files (large model format)
 *.gguf
+
+# HF cache
+.cache/
+

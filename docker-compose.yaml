@@ -1,0 +1,204 @@
+# Nemotron Unified Container - Docker Compose Configuration
+#
+# Manages ASR, TTS, and LLM services in a single unified container.
+# Uses profiles to handle different network modes (bridge for llamacpp, host for vLLM).
+#
+# Profiles:
+#   - llamacpp: For llamacpp-q8 or llamacpp-q4 modes (bridge network, port mapping)
+#   - vllm: For vLLM mode (host network for DNS workaround)
+#
+# Usage:
+#   # Setup environment (choose appropriate template)
+#   cp .env.llamacpp-q8.example .env  # Most common: Q8 mode
+#   cp .env.llamacpp-q4.example .env  # For 32GB GPUs
+#   cp .env.vllm.example .env         # For cloud/multi-GPU
+#   cp .env.no-llm.example .env       # ASR + TTS only
+#
+#   # Edit .env to set model paths
+#   vim .env
+#
+#   # Start services
+#   docker compose up -d
+#
+#   # View logs
+#   docker compose logs -f
+#
+#   # Check status
+#   docker compose ps
+#
+#   # Shell access
+#   docker compose exec nemotron-llamacpp bash  # or nemotron-vllm
+#
+#   # Stop services
+#   docker compose down
+#
+# Configuration: All settings in .env file (see .env.example for documentation)
+
+services:
+  # ===========================================================================
+  # Service variant for llama.cpp modes (Q8, Q4)
+  # Uses bridge network with port mapping for standard Docker networking
+  # ===========================================================================
+  nemotron-llamacpp:
+    image: ${NEMOTRON_IMAGE:-nemotron-unified:cuda13}
+    container_name: ${PROJECT_NAME:-nemotron}-llamacpp
+    profiles: ["llamacpp"]
+
+    # GPU allocation
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Host IPC mode for GPU memory sharing
+    ipc: host
+
+    # Port mapping for services
+    ports:
+      - "${ASR_PORT:-8080}:8080"    # ASR WebSocket
+      - "${TTS_PORT:-8001}:8001"    # TTS HTTP + WebSocket
+      - "${LLM_PORT:-8000}:8000"    # LLM HTTP API
+
+    # Volume mounts
+    volumes:
+      # Project directory (contains scripts, bots, source code)
+      - ${PROJECT_DIR:-.}:/workspace
+      # HuggingFace model cache (persistent across runs)
+      - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
+      # External model directory (for models outside HF cache)
+      # Set MODEL_DIR in .env to your host model directory (e.g., /data/models)
+      - ${MODEL_DIR:-/data/models}:/models:ro
+
+    # Environment variables passed to container
+    environment:
+      # Service control flags
+      - ENABLE_ASR=${ENABLE_ASR:-true}
+      - ENABLE_TTS=${ENABLE_TTS:-true}
+      - ENABLE_LLM=${ENABLE_LLM:-true}
+
+      # LLM configuration
+      - LLM_MODE=${LLM_MODE}
+      - LLAMA_MODEL=${LLAMA_MODEL}
+      - LLAMA_PARALLEL=${LLAMA_PARALLEL:-1}
+      - LLAMA_CTX_SIZE=${LLAMA_CTX_SIZE:-16384}
+      - LLAMA_REASONING_BUDGET=${LLAMA_REASONING_BUDGET:-0}
+
+      # Service timeout (seconds to wait for startup)
+      - SERVICE_TIMEOUT=${SERVICE_TIMEOUT:-60}
+
+      # HuggingFace authentication (for gated models)
+      - HUGGINGFACE_ACCESS_TOKEN=${HUGGINGFACE_ACCESS_TOKEN:-}
+      - HF_TOKEN=${HUGGINGFACE_ACCESS_TOKEN:-}
+
+      # PyTorch memory allocator (prevents fragmentation on 32GB GPUs)
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+      # GPU architecture (set at build time, can override at runtime)
+      - GPU_ARCH=${GPU_ARCH:-blackwell}
+
+    # Entrypoint script handles service startup
+    entrypoint: ["bash", "/workspace/scripts/start_unified.sh"]
+
+    # Automatically restart on failure
+    restart: unless-stopped
+
+    # Health check for all enabled services
+    healthcheck:
+      test: |
+        if [ "$${ENABLE_ASR}" = "true" ]; then
+          curl -sf http://localhost:8080/health || exit 1;
+        fi;
+        if [ "$${ENABLE_TTS}" = "true" ]; then
+          curl -sf http://localhost:8001/health || exit 1;
+        fi;
+        if [ "$${ENABLE_LLM}" = "true" ]; then
+          curl -sf http://localhost:8000/health || exit 1;
+        fi;
+        exit 0
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ===========================================================================
+  # Service variant for vLLM mode
+  # Uses host network for HuggingFace DNS workaround
+  # ===========================================================================
+  nemotron-vllm:
+    image: ${NEMOTRON_IMAGE:-nemotron-unified:cuda13}
+    container_name: ${PROJECT_NAME:-nemotron}-vllm
+    profiles: ["vllm"]
+
+    # GPU allocation
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # Host IPC mode for GPU memory sharing
+    ipc: host
+
+    # Host network mode (required for vLLM DNS resolution)
+    network_mode: host
+
+    # Volume mounts
+    volumes:
+      # Project directory
+      - ${PROJECT_DIR:-.}:/workspace
+      # HuggingFace model cache
+      - ${HF_CACHE_DIR:-~/.cache/huggingface}:/root/.cache/huggingface
+
+    # Environment variables passed to container
+    environment:
+      # Service control flags
+      - ENABLE_ASR=${ENABLE_ASR:-true}
+      - ENABLE_TTS=${ENABLE_TTS:-true}
+      - ENABLE_LLM=${ENABLE_LLM:-true}
+
+      # vLLM configuration
+      - LLM_MODE=vllm
+      - VLLM_MODEL=${VLLM_MODEL}
+      - VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.60}
+
+      # Service timeout (vLLM needs ~15 minutes for first load)
+      - SERVICE_TIMEOUT=${SERVICE_TIMEOUT:-900}
+
+      # HuggingFace authentication
+      - HUGGINGFACE_ACCESS_TOKEN=${HUGGINGFACE_ACCESS_TOKEN:-}
+      - HF_TOKEN=${HUGGINGFACE_ACCESS_TOKEN:-}
+
+      # PyTorch memory allocator
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+      # GPU architecture
+      - GPU_ARCH=${GPU_ARCH:-blackwell}
+
+    # Entrypoint script handles service startup
+    entrypoint: ["bash", "/workspace/scripts/start_unified.sh"]
+
+    # Automatically restart on failure
+    restart: unless-stopped
+
+    # Health check for all enabled services (extended startup period for vLLM)
+    healthcheck:
+      test: |
+        if [ "$${ENABLE_ASR}" = "true" ]; then
+          curl -sf http://localhost:8080/health || exit 1;
+        fi;
+        if [ "$${ENABLE_TTS}" = "true" ]; then
+          curl -sf http://localhost:8001/health || exit 1;
+        fi;
+        if [ "$${ENABLE_LLM}" = "true" ]; then
+          curl -sf http://localhost:8000/health || exit 1;
+        fi;
+        exit 0
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 900s  # vLLM takes ~15 minutes on first load
