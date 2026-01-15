@@ -219,7 +219,7 @@ class CanaryASRServer:
                     "type": "error",
                     "message": str(e)
                 }))
-            except:
+            except Exception:
                 pass
         finally:
             if session_id in self.sessions:
