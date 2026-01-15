@@ -19,7 +19,7 @@ import argparse
 import hashlib
 import json
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional, List
 
 import numpy as np
