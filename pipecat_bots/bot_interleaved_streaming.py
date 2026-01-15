@@ -74,6 +74,14 @@ NVIDIA_ASR_URL = os.getenv("NVIDIA_ASR_URL", "ws://localhost:8080")
 NVIDIA_LLAMA_CPP_URL = os.getenv("NVIDIA_LLAMA_CPP_URL", "http://localhost:8000")
 NVIDIA_TTS_URL = os.getenv("NVIDIA_TTS_URL", "http://localhost:8001")
 
+# TTS language configuration (must match one of: en, es, de, fr, vi, it, zh)
+TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "en")
+
+# LLM configuration
+# DISABLE_THINKING: Set to "true" for Nemotron models with thinking mode
+# Leave "false" for other models (Mistral, Llama, etc.)
+DISABLE_THINKING = os.getenv("DISABLE_THINKING", "false").lower() == "true"
+
 # Audio recording configuration
 ENABLE_RECORDING = os.getenv("ENABLE_RECORDING", "false").lower() == "true"
 RECORDINGS_DIR = Path(__file__).parent.parent / "recordings"
@@ -136,6 +144,8 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     logger.info(f"  ASR URL: {NVIDIA_ASR_URL}")
     logger.info(f"  LLM URL: {NVIDIA_LLAMA_CPP_URL}")
     logger.info(f"  TTS URL: {NVIDIA_TTS_URL}")
+    logger.info(f"  TTS Language: {TTS_LANGUAGE}")
+    logger.info(f"  Disable Thinking: {DISABLE_THINKING}")
     logger.info(f"  Transport: {type(transport).__name__}")
     logger.info(f"  Recording: {'enabled' if ENABLE_RECORDING else 'disabled'}")
     logger.info(f"  VAD stop_secs: {VAD_STOP_SECS}s")
@@ -151,14 +161,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     tts = MagpieWebSocketTTSService(
         server_url=NVIDIA_TTS_URL,
         voice="aria",
-        language="en",
+        language=TTS_LANGUAGE,
         params=MagpieWebSocketTTSService.InputParams(
-            language="en",
+            language=TTS_LANGUAGE,
             streaming_preset="conservative",
             use_adaptive_mode=True,
         ),
     )
-    logger.info("Using WebSocket Magpie TTS (adaptive mode)")
+    logger.info(f"Using WebSocket Magpie TTS (adaptive mode, language={TTS_LANGUAGE})")
 
     # Voice-to-voice response time metrics
     v2v_metrics = V2VMetricsProcessor(vad_stop_secs=VAD_STOP_SECS)
@@ -186,18 +196,22 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
         {
             "role": "system",
             "content": (
-                "You are a helpful AI assistant running on an NVIDIA DGX Spark. "
-                "You are built with Nemotron Three Nano, a large language model developed by NVIDIA. "
-                "Your goal is to have a natural conversation with the user. "
-                "Keep your responses concise and conversational since they will be spoken aloud. "
+                "You are Claudia, a friendly Spanish conversation partner running on an NVIDIA 3090. "
+                "Your goal is to help people practice Spanish through natural conversation. "
+                "Keep your responses very short, one to two sentences maximum, since this is voice chat. "
+                "Use simple Spanish at A1 to B1 level. Avoid subjunctive, complex tenses, and idioms. "
+                "Respond only in Spanish unless the user explicitly asks for English help. "
+                "Be conversational: ask questions, react naturally, show interest. Do not lecture. "
+                "Do not correct every mistake. Only clarify if meaning is unclear. "
                 "Avoid special characters. Use only simple, plain text sentences. "
-                "Always punctuate your responses using standard sentence punctuation: commas, periods, question marks, exclamation points, etc. "
+                "Always punctuate your responses using standard Spanish punctuation: commas, periods, question marks, exclamation points, and inverted question and exclamation marks. "
                 "Always spell out numbers as words. "
+                "Start with a simple greeting like: ¿Hola, de qué quieres hablar hoy? "
             ),
         },
         {
             "role": "user",
-            "content": "Say hello and ask how you can help.",
+            "content": "Di hola y pregúntame cómo estoy",
         },
     ]
 
@@ -212,9 +226,10 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
             first_segment_hard_max_tokens=24,
             segment_max_tokens=32,
             segment_hard_max_tokens=96,
+            disable_thinking=DISABLE_THINKING,
         ),
     )
-    logger.info("Using LlamaCppBufferedLLMService (single-slot, 100% cache)")
+    logger.info(f"Using LlamaCppBufferedLLMService (single-slot, 100% cache, disable_thinking={DISABLE_THINKING})")
 
     # RTVI processor for client communication
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))

@@ -244,7 +244,7 @@ async def synthesize_speech(request: SpeechRequest):
     if not text.strip():
         raise HTTPException(status_code=400, detail="Empty input text")
 
-    logger.debug(f"TTS request: voice={voice}, language={language}, text=[{text[:50]}...]")
+    logger.info(f"TTS request: voice={voice}, language={language}, text=[{text[:50]}...]")
 
     def _synthesize():
         with torch.no_grad():
@@ -426,7 +426,7 @@ async def websocket_tts_stream(websocket: WebSocket):
 
                 if segment:
                     text, mode, preset = segment
-                    logger.info(f"[{stream.stream_id[:8]}] Generating: '{text[:50]}...' mode={mode}")
+                    logger.info(f"[{stream.stream_id[:8]}] Generating: '{text[:50]}...' mode={mode} language={stream.language}")
                     segment_bytes = 0
 
                     if mode == "stream":
@@ -583,6 +583,7 @@ async def websocket_tts_stream(websocket: WebSocket):
                 voice = data.get("voice", "aria").lower()
                 language = data.get("language", "en").lower()
                 default_mode = data.get("default_mode", "batch")
+                logger.info(f"WS init: voice={voice}, language={language}, default_mode={default_mode}")
 
                 # Clean up any old stream/task from previous response
                 if audio_task is not None and not audio_task.done():

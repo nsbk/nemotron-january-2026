@@ -47,6 +47,9 @@ NVIDIA_ASR_URL = os.getenv("NVIDIA_ASR_URL", "ws://localhost:8080")
 NVIDIA_LLAMA_CPP_URL = os.getenv("NVIDIA_LLAMA_CPP_URL", "http://localhost:8000")
 NVIDIA_TTS_URL = os.getenv("NVIDIA_TTS_URL", "http://localhost:8001")
 
+# TTS language configuration (must match one of: en, es, de, fr, vi, it, zh)
+TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "en")
+
 # Transport configurations with SIMPLE VAD only (no SmartTurn)
 # Using stop_secs=0.8 (800ms) for conservative turn detection
 transport_params = {
@@ -89,14 +92,14 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     tts = MagpieWebSocketTTSService(
         server_url=NVIDIA_TTS_URL,
         voice="aria",
-        language="en",
+        language=TTS_LANGUAGE,
         params=MagpieWebSocketTTSService.InputParams(
-            language="en",
+            language=TTS_LANGUAGE,
             streaming_preset="conservative",
             use_adaptive_mode=True,
         ),
     )
-    logger.info("Using WebSocket Magpie TTS (adaptive mode)")
+    logger.info(f"Using WebSocket Magpie TTS (adaptive mode, language={TTS_LANGUAGE})")
 
     # Chunked LLM - sentence-boundary streaming direct to llama.cpp
     llm = LlamaCppChunkedLLMService(

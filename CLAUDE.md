@@ -22,13 +22,16 @@ docker build -f Dockerfile.unified --build-arg GPU_ARCH=ampere -t nemotron-unifi
 
 # IMPORTANT: Configuration is now managed via .env file (not command-line args)
 
-# Setup environment (choose appropriate template)
-cp .env.llamacpp-q8.example .env    # Most common: Q8 quantization
-cp .env.llamacpp-q4.example .env    # For 32GB GPUs
-cp .env.vllm.example .env           # For cloud/multi-GPU
-cp .env.no-llm.example .env         # ASR + TTS only
+# Setup environment
+cp .env.example .env
 
-# Edit .env to set model path (CRITICAL: use container paths, not host paths)
+# Edit .env to configure your setup (CRITICAL: use container paths, not host paths)
+# Key settings:
+#   COMPOSE_PROFILES    - llamacpp or vllm
+#   LLM_MODE            - llamacpp-q8, llamacpp-q4, or vllm
+#   LLAMA_MODEL         - Path to GGUF model (container path)
+#   ASR_MODEL           - nemotron (English) or canary (multilingual)
+#   TTS_LANGUAGE        - en, es, de, fr, vi, it, zh
 vim .env
 
 # Start AI services container
@@ -104,8 +107,8 @@ Serve the bot over HTTPS on your Tailscale network using `tailscale serve`. This
 # 2. Tailscale authenticated (run `tailscale up` to connect)
 
 # Start AI services (unified container)
-cp .env.llamacpp-q8.example .env  # Or choose appropriate template
-vim .env                           # Edit model path
+cp .env.example .env
+vim .env                           # Configure model path and settings
 docker compose up -d
 
 # Run the bot (listens on localhost:7860)
@@ -185,7 +188,8 @@ Audio In → STT (streaming) → LLM (buffered, sentence boundaries) → TTS (ad
 
 ```
 ├── src/nemotron_speech/         # Inference services (ASR, TTS)
-│   ├── server.py                # WebSocket ASR server (Parakeet model)
+│   ├── server.py                # WebSocket ASR server (Nemotron-Speech/Parakeet, English)
+│   ├── canary_server.py         # WebSocket ASR server (Canary, multilingual/Spanish)
 │   ├── tts_server.py            # WebSocket TTS server (Magpie model)
 │   ├── streaming_tts.py         # Frame-by-frame TTS generation
 │   ├── adaptive_stream.py       # TTS stream state management
@@ -220,11 +224,19 @@ Audio In → STT (streaming) → LLM (buffered, sentence boundaries) → TTS (ad
 
 ### Key Components
 
-**STT Service** (`src/nemotron_speech/server.py`):
-- NVIDIA Parakeet model with true incremental streaming
+**STT Service - English** (`src/nemotron_speech/server.py`):
+- NVIDIA Nemotron-Speech (Parakeet) model with true incremental streaming
 - Processes audio in 160ms chunks with encoder/decoder cache
 - Configurable right context (0-13 frames) for latency/accuracy tradeoff
 - Default: 1 frame (~160ms latency, recommended)
+- English only
+
+**STT Service - Multilingual** (`src/nemotron_speech/canary_server.py`):
+- NVIDIA Canary model for Spanish, German, French, English
+- Encoder-decoder architecture with 1-second minimum chunk size
+- Higher latency (~1.5s) but supports multiple languages
+- Same WebSocket protocol as server.py for Pipecat compatibility
+- Select with `ASR_MODEL=canary` in .env
 
 **LLM Service** (`pipecat_bots/llama_cpp_buffered_llm.py`):
 - Run-to-completion buffered approach (no mid-stream cancellation)
@@ -299,7 +311,9 @@ The frame ordering fix in `nvidia_stt.py` is CRITICAL:
 
 | Model | Source | Size | Used With |
 |-------|--------|------|-----------|
-| Nemotron Speech ASR | HuggingFace `nvidia/nemotron-speech-streaming-en-0.6b` | ~2.4GB | Auto-downloaded |
+| Nemotron Speech ASR | HuggingFace `nvidia/nemotron-speech-streaming-en-0.6b` | ~2.4GB | Auto-downloaded (English) |
+| Canary-1B-Flash | HuggingFace `nvidia/canary-1b-flash` | ~3.5GB | Multilingual ASR (es, de, fr, en) |
+| Canary-1B-V2 | HuggingFace `nvidia/canary-1b-v2` | ~4GB | 25-language ASR |
 | Nemotron-3-Nano Q8 | HuggingFace `unsloth/Nemotron-3-Nano-30B-A3B-GGUF` | ~32GB | llama.cpp (DGX Spark) |
 | Nemotron-3-Nano Q4 | HuggingFace `unsloth/Nemotron-3-Nano-30B-A3B-GGUF` | ~16GB | llama.cpp (RTX 5090) |
 | Nemotron-3-Nano BF16 | HuggingFace `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` | ~72GB | vLLM (cloud/multi-GPU) |
@@ -315,6 +329,15 @@ huggingface-cli download nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
 ```
 
 ## Environment Variables
+
+### ASR Configuration (Container)
+- `ASR_MODEL` - ASR backend: `nemotron` (English, ~160ms latency) or `canary` (multilingual, ~1.5s latency)
+- `CANARY_MODEL` - Canary model name (default: `nvidia/canary-1b-flash`)
+- `ASR_SOURCE_LANG` - Source language code for Canary (default: `es`)
+- `ASR_TARGET_LANG` - Target language code for Canary (default: `es`)
+
+### TTS Configuration (Bot)
+- `TTS_LANGUAGE` - TTS output language (default: `en`). Supported: en, es, de, fr, vi, it, zh
 
 ### bot_interleaved_streaming.py / bot_simple_vad.py
 - `NVIDIA_ASR_URL` - ASR WebSocket endpoint (default: `ws://localhost:8080`)
@@ -352,6 +375,11 @@ huggingface-cli download nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
 - Verify frame ordering fix in STT client
 - Check LLM cache hit ratio (should be >90% after first turn)
 - Monitor TTS TTFB (should be ~370ms for first segment)
+
+**Spanish ASR has higher latency (~1.5s):**
+- Expected behavior - Canary uses encoder-decoder architecture requiring 1-second minimum chunks
+- Nemotron-Speech (English) achieves ~160ms chunks via CTC-based streaming
+- For lowest latency voice agents, use English with `ASR_MODEL=nemotron`
 
 ## Additional Documentation
 

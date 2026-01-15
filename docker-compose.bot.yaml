@@ -32,6 +32,8 @@ services:
       # Bot configuration
       - BOT_PORT=${BOT_PORT:-7860}
       - ENABLE_RECORDING=${ENABLE_RECORDING:-false}
+      - TTS_LANGUAGE=${TTS_LANGUAGE:-en}
+      - DISABLE_THINKING=${DISABLE_THINKING:-false}
 
       # Daily.co transport (optional)
       - DAILY_API_KEY=${DAILY_API_KEY:-}
