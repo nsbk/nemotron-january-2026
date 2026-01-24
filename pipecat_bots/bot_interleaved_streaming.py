@@ -53,6 +53,7 @@ from nvidia_stt import NVidiaWebSocketSTTService
 from magpie_websocket_tts import MagpieWebSocketTTSService
 from llama_cpp_buffered_llm import LlamaCppBufferedLLMService
 from v2v_metrics import V2VMetricsProcessor
+from system_prompt_content import system_prompt_content, user_prompt_content    
 
 
 class ContextTimingWrapper(FrameProcessor):
@@ -78,7 +79,7 @@ NVIDIA_TTS_URL = os.getenv("NVIDIA_TTS_URL", "http://localhost:8001")
 TTS_LANGUAGE = os.getenv("TTS_LANGUAGE", "en")
 
 # LLM configuration
-# DISABLE_THINKING: Set to "true" for Nemotron models with thinking mode
+#   : Set to "true" for Nemotron models with thinking mode
 # Leave "false" for other models (Mistral, Llama, etc.)
 DISABLE_THINKING = os.getenv("DISABLE_THINKING", "false").lower() == "true"
 
@@ -195,23 +196,7 @@ async def run_bot(transport: BaseTransport, runner_args: RunnerArguments):
     messages = [
         {
             "role": "system",
-            "content": (
-                "You are Claudia, a friendly Spanish conversation partner running on an NVIDIA 3090. "
-                "Your goal is to help people practice Spanish through natural conversation. "
-                "Keep your responses very short, one to two sentences maximum, since this is voice chat. "
-                "Use simple Spanish at A1 to B1 level. Avoid subjunctive, complex tenses, and idioms. "
-                "Respond only in Spanish unless the user explicitly asks for English help. "
-                "Be conversational: ask questions, react naturally, show interest. Do not lecture. "
-                "Do not correct every mistake. Only clarify if meaning is unclear. "
-                "Avoid special characters. Use only simple, plain text sentences. "
-                "Always punctuate your responses using standard Spanish punctuation: commas, periods, question marks, exclamation points, and inverted question and exclamation marks. "
-                "Always spell out numbers as words. "
-                "Start with a simple greeting like: ¿Hola, de qué quieres hablar hoy? "
-            ),
-        },
-        {
-            "role": "user",
-            "content": "Di hola y pregúntame cómo estoy",
+            "content": system_prompt_content,
         },
     ]
 
